@@ -1,3 +1,4 @@
+// D:\cms\frontend\src\pages\Dashboard.tsx
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Card from '../components/common/Card';
@@ -11,7 +12,7 @@ import {
   Car,
   Calendar,
   Home,
-  Sparkles
+  Sparkles,
 } from 'lucide-react';
 import axios from 'axios';
 
@@ -27,7 +28,7 @@ interface Notification {
   id: number;
   title: string;
   description: string;
-  timestamp: number; // Unix timestamp for sorting
+  timestamp: number;
   type: 'event' | 'maintenance' | 'payment' | 'announcement';
 }
 
@@ -39,23 +40,33 @@ const Dashboard: React.FC = () => {
 
   const fetchOpenComplaintsCount = async () => {
     try {
-      const apiUrl = import.meta.env.VITE_BACKEND_API_URL.replace('/auth', '');
+      const apiUrl = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api';
+      const token = localStorage.getItem('societyToken');
+      console.log('Fetching complaints:', { apiUrl, token: token ? 'present' : 'missing' });
       const response = await axios.get(`${apiUrl}/complaints?status=open`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('societyToken')}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
-      setOpenComplaintsCount(response.data.length);
+      setOpenComplaintsCount(Array.isArray(response.data) ? response.data.length : 0);
     } catch (error) {
-      console.error('Failed to fetch open complaints count:', error);
+      console.error('Failed to fetch open complaints count:', error.response?.data || error.message);
+      setOpenComplaintsCount(0);
     }
   };
 
   const fetchAnnouncements = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/announcements');
-      const data: Announcement[] = await res.json();
+      const apiUrl = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api';
+      const token = localStorage.getItem('societyToken');
+      console.log('Fetching announcements:', { apiUrl, token: token ? 'present' : 'missing' });
+      const response = await axios.get(`${apiUrl}/announcements?limit=10`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data: Announcement[] = Array.isArray(response.data) ? response.data : [];
       setAnnouncements(data);
+      console.log('Announcements loaded:', data);
     } catch (err) {
-      console.error('Failed to load announcements', err);
+      console.error('Failed to load announcements:', err.response?.data || err.message);
+      setAnnouncements([]);
     }
   };
 
@@ -69,7 +80,6 @@ const Dashboard: React.FC = () => {
 
     const handleAnnouncementAdded = () => {
       fetchAnnouncements();
-      // Clear newAnnouncementIds to force timestamp override for all announcements without date
       setNewAnnouncementIds(new Set());
     };
 
@@ -82,79 +92,70 @@ const Dashboard: React.FC = () => {
     };
   }, []);
 
-  // Recent notifications from static and dynamic sources
   const staticNotifications: Notification[] = [
     {
       id: 1,
       title: 'Community Meeting',
       description: 'Monthly community meeting this Sunday at 10:00 AM.',
-      timestamp: Date.now() - 3600 * 1000, // 1 hour ago
-      type: 'event'
+      timestamp: Date.now() - 3600 * 1000,
+      type: 'event',
     },
     {
       id: 2,
       title: 'Maintenance Notice',
-      description: 'Water supply will be interrupted tomorrow from 10:00 AM to 2:00 PM due to maintenance.',
-      timestamp: Date.now() - 24 * 3600 * 1000, // 1 day ago
-      type: 'maintenance'
+      description: 'Water supply will be interrupted tomorrow from 10:00 AM to 2:00 PM.',
+      timestamp: Date.now() - 24 * 3600 * 1000,
+      type: 'maintenance',
     },
     {
       id: 3,
       title: 'New Payment',
       description: 'Your maintenance payment for August has been received.',
-      timestamp: Date.now() - 3 * 24 * 3600 * 1000, // 3 days ago
-      type: 'payment'
-    }
+      timestamp: Date.now() - 3 * 24 * 3600 * 1000,
+      type: 'payment',
+    },
   ];
 
-  // Map announcements to notification format
   const announcementNotifications: Notification[] = announcements.map((a) => ({
-    id: 1000 + a.id, // offset id to avoid collision
+    id: 1000 + a.id,
     title: a.title,
     description: a.content,
     timestamp: a.date ? new Date(a.date).getTime() : Date.now(),
     type: 'announcement',
   }));
 
-  // Combine notifications
   let notifications: Notification[] = [...announcementNotifications, ...staticNotifications];
-
-  // Sort notifications by timestamp descending
   notifications = notifications.sort((a, b) => b.timestamp - a.timestamp);
 
-  // Quick stats
   const stats = [
     {
       label: 'Pending Bills',
       value: '2',
       icon: CreditCard,
-      color: 'text-red-500'
+      color: 'text-red-500',
     },
     {
       label: 'Upcoming Visitors',
       value: '3',
       icon: Users,
-      color: 'text-blue-500'
+      color: 'text-blue-500',
     },
     {
       label: 'Open Complaints',
       value: openComplaintsCount.toString(),
       icon: AlertCircle,
-      color: 'text-amber-500'
-    }
+      color: 'text-amber-500',
+    },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Welcome banner for mobile */}
       <div className="block sm:hidden mb-6 bg-primary/10 rounded-lg p-4 border-l-4 border-primary">
         <p className="text-sm font-medium text-primary">
           Welcome back, <span className="font-semibold">{user?.name}</span>
         </p>
         <p className="text-xs text-gray-600">Unit: {user?.unit}</p>
       </div>
-
-      {/* Quick stats */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {stats.map((stat) => (
           <Card key={stat.label} className="flex items-center">
@@ -168,8 +169,6 @@ const Dashboard: React.FC = () => {
           </Card>
         ))}
       </div>
-
-      {/* Quick actions */}
       <h2 className="text-lg font-medium text-gray-800">Quick Actions</h2>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <ActionTile
@@ -201,33 +200,27 @@ const Dashboard: React.FC = () => {
           color="bg-indigo-500 text-white"
         />
       </div>
-
-      {/* Notifications */}
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-medium text-gray-800">Recent Notifications</h2>
-        <Link to="/announcements" className="text-sm text-primary hover:underline">View all</Link>
+        <Link to="/announcements" className="text-sm text-primary hover:underline">
+          View all
+        </Link>
       </div>
       <div className="space-y-4">
         {notifications.map((notification) => (
           <Card key={notification.id} className="flex">
             <div className="flex-shrink-0 mr-4">
-              {notification.type === 'event' && (
-                <Calendar className="w-6 h-6 text-blue-500" />
-              )}
-              {notification.type === 'maintenance' && (
-                <Sparkles className="w-6 h-6 text-amber-500" />
-              )}
-              {notification.type === 'payment' && (
-                <CreditCard className="w-6 h-6 text-green-500" />
-              )}
-              {notification.type === 'announcement' && (
-                <Bell className="w-6 h-6 text-purple-500" />
-              )}
+              {notification.type === 'event' && <Calendar className="w-6 h-6 text-blue-500" />}
+              {notification.type === 'maintenance' && <Sparkles className="w-6 h-6 text-amber-500" />}
+              {notification.type === 'payment' && <CreditCard className="w-6 h-6 text-green-500" />}
+              {notification.type === 'announcement' && <Bell className="w-6 h-6 text-purple-500" />}
             </div>
             <div className="flex-1">
               <div className="flex justify-between">
                 <h3 className="font-medium text-gray-800">{notification.title}</h3>
-                <span className="text-xs text-gray-500">{new Date(notification.timestamp).toLocaleDateString()}</span>
+                <span className="text-xs text-gray-500">
+                  {new Date(notification.timestamp).toLocaleDateString()}
+                </span>
               </div>
               <p className="mt-1 text-sm text-gray-600">{notification.description}</p>
             </div>

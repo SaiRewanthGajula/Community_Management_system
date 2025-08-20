@@ -1,12 +1,17 @@
-// routes/announcementRoutes.js
+// D:\cms\backend\routes\announcementRoutes.js
 const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/authMiddleware');
-const announcementController = require('../controllers/announcementController');
+const {
+  createAnnouncement,
+  getAllAnnouncements,
+  updateAnnouncement,
+  deleteAnnouncement,
+} = require('../controllers/announcementController');
 
-router.get('/announcements', authenticateToken, announcementController.getAllAnnouncements);
-router.post('/announcements', authenticateToken, announcementController.createAnnouncement);
-router.put('/announcements/:id', authenticateToken, announcementController.updateAnnouncement);
-router.delete('/announcements/:id', authenticateToken, announcementController.deleteAnnouncement);
+router.post('/', authenticateToken, createAnnouncement);
+router.get('/', authenticateToken, getAllAnnouncements);
+router.put('/:id', authenticateToken, updateAnnouncement);
+router.delete('/:id', authenticateToken, deleteAnnouncement);
 
 module.exports = router;
