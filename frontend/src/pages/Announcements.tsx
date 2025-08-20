@@ -1,4 +1,4 @@
-// Announcements.tsx
+// src/pages/Announcements.tsx
 import React, { useState, useEffect, ChangeEvent } from 'react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -24,6 +24,7 @@ const Announcements: React.FC = () => {
   const nav = useNavigate();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Announcement | null>(null);
   const [editLoading, setEditLoading] = useState(false);
@@ -40,18 +41,27 @@ const Announcements: React.FC = () => {
         const res = await axios.get<Announcement[]>(`${apiBase}/announcements?limit=10`, {
           headers: { Authorization: `Bearer ${token}` },
         });
+        console.log('Announcements response:', res.data); // Debug
         setAnnouncements(Array.isArray(res.data) ? res.data : []);
       } catch (err: any) {
         console.error('Failed to load announcements:', err);
-        if (axios.isAxiosError(err) && (err.response?.status === 401 || err.response?.status === 403)) {
-          localStorage.removeItem('societyToken');
-          nav('/login');
+        if (axios.isAxiosError(err)) {
+          console.log('Axios error details:', {
+            status: err.response?.status,
+            data: err.response?.data,
+            url: err.config?.url,
+          });
+          if (err.response?.status === 401 || err.response?.status === 403) {
+            localStorage.removeItem('societyToken');
+            nav('/login');
+          } else if (err.response?.status === 404) {
+            setError('Announcements endpoint not found. Check backend configuration.');
+          } else {
+            setError(err.response?.data?.error || `Failed to load announcements: ${err.message}`);
+          }
+        } else {
+          setError(`Unexpected error: ${err.message}`);
         }
-        alert(
-          err.response?.data?.error ||
-            `Failed to load announcements: ${err.message}`
-        );
-        setAnnouncements([]);
       } finally {
         setLoading(false);
       }
@@ -122,7 +132,7 @@ const Announcements: React.FC = () => {
       alert('Updated successfully.');
     } catch (err: any) {
       console.error('Update failed:', err);
-      alert(err.response?.data?.error || err.message);
+      setEditError(err.response?.data?.error || err.message);
     } finally {
       setEditLoading(false);
     }
@@ -139,6 +149,7 @@ const Announcements: React.FC = () => {
   });
 
   if (loading) return <p className="p-6">Loading announcements...</p>;
+  if (error) return <p className="p-6 text-red-600">{error}</p>;
 
   return (
     <div className="p-6">
@@ -199,22 +210,24 @@ const Announcements: React.FC = () => {
                     Posted on: {a.date ? new Date(a.date).toLocaleDateString() : 'N/A'}
                   </p>
                 </div>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={() => openEditModal(a)}
-                    className="p-1 hover:bg-gray-100 rounded"
-                    title="Edit Announcement"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => deleteAnnouncement(a.id)}
-                    className="p-1 hover:bg-gray-100 rounded"
-                    title="Delete Announcement"
-                  >
-                    <Trash2 className="w-4 h-4 text-red-600" />
-                  </button>
-                </div>
+                {isAdmin && (
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => openEditModal(a)}
+                      className="p-1 hover:bg-gray-100 rounded"
+                      title="Edit Announcement"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => deleteAnnouncement(a.id)}
+                      className="p-1 hover:bg-gray-100 rounded"
+                      title="Delete Announcement"
+                    >
+                      <Trash2 className="w-4 h-4 text-red-600" />
+                    </button>
+                  </div>
+                )}
               </div>
             </Card>
           ))

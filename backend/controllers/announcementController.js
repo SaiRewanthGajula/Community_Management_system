@@ -1,9 +1,10 @@
+// D:\cms\backend\controllers\announcementController.js
 const db = require('../config/db');
 
 exports.createAnnouncement = async (req, res) => {
   try {
     const { title, content, priority, date } = req.body;
-    const userId = req.user?.id; // From authenticateToken middleware
+    const userId = req.user?.id;
 
     if (!title || !content || !priority || !userId) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -41,6 +42,7 @@ exports.createAnnouncement = async (req, res) => {
 };
 
 exports.getAllAnnouncements = async (req, res) => {
+  console.log('Received request for /api/announcements');
   try {
     const limit = parseInt(req.query.limit) || 10;
     console.log('Fetching announcements with limit:', limit);

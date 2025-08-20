@@ -1,3 +1,4 @@
+// src/components/layout/Header.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { Bell, User, Menu } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -30,34 +31,66 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
   useEffect(() => {
     const fetchNotifications = async () => {
-  try {
-    const apiUrl = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api';
-    const token = localStorage.getItem('societyToken');
-    if (!token) throw new Error('No token found');
-    const announcementsRes = await axios.get(`${apiUrl}/announcements?limit=10`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setNotifications(announcementsRes.data.map(item => ({
-      id: item.id,
-      title: item.title,
-      description: item.content,
-      timestamp: new Date(item.date).getTime(),
-      type: 'announcement',
-    })));
-  } catch (error) {
-    console.error('Failed to fetch notifications:', error);
-    if (axios.isAxiosError(error) && (error.response?.status === 401 || error.response?.status === 403)) {
-      localStorage.removeItem('societyToken');
-      window.location.href = '/login';
-    }
-    setNotifications([]);
-  }
-};
+      try {
+        const apiUrl = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api';
+        const token = localStorage.getItem('societyToken');
+        if (!token) throw new Error('No token found');
+        const headers = { Authorization: `Bearer ${token}` };
+
+        // Fetch announcements
+        const announcementsRes = await axios.get(`${apiUrl}/announcements?limit=10`, { headers });
+        console.log('Announcements response:', announcementsRes.data); // Debug
+        const announcements = announcementsRes.data.map((item: any) => ({
+          id: item.id.toString(),
+          title: item.title,
+          description: item.content,
+          date: item.date || new Date().toISOString().split('T')[0],
+          type: 'announcement' as const,
+          link: '/announcements',
+        }));
+
+        // Fetch complaints
+        const complaintsRes = await axios.get(`${apiUrl}/complaints?limit=10`, { headers });
+        console.log('Complaints response:', complaintsRes.data); // Debug
+        const complaints = complaintsRes.data.map((item: any) => ({
+          id: item.id.toString(),
+          title: item.title,
+          description: item.description,
+          date: item.date || new Date().toISOString().split('T')[0],
+          type: 'complaint' as const,
+          link: '/complaints',
+          number: item.id,
+        }));
+
+        // Merge and sort by date descending
+        const allNotifications = [...announcements, ...complaints].sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
+        setNotifications(allNotifications);
+      } catch (error) {
+        console.error('Failed to fetch notifications:', error);
+        if (axios.isAxiosError(error)) {
+          console.log('Axios error details:', {
+            status: error.response?.status,
+            data: error.response?.data,
+            url: error.config?.url,
+          });
+          if (error.response?.status === 401 || error.response?.status === 403) {
+            localStorage.removeItem('societyToken');
+            navigate('/login');
+          } else if (error.response?.status === 404) {
+            setNotifications([]); // Handle 404 gracefully
+          } else {
+            console.error('Unexpected error:', error.response?.data?.error || error.message);
+          }
+        }
+      }
+    };
 
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [user, readNotificationIds]);
+  }, [user, navigate]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -79,7 +112,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
   const handleNotificationClick = (link: string, id: string) => {
     setShowNotifications(false);
-    setReadNotificationIds((prev) => new Set(prev).add(id));
+    setReadNotificationIds((prev) => new Set([...prev, id]));
     navigate(link);
   };
 
