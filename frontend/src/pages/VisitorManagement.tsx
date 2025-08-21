@@ -1,8 +1,9 @@
+// frontend/src/components/VisitorManagement.tsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/common/Tabs';
-import Button  from '../components/common/Button';
-import Input  from '../components/common/Input';
+import  Button  from '../components/common/Button';
+import  Input  from '../components/common/Input';
 import  Card  from '../components/common/Card';
 import axios, { AxiosResponse } from 'axios';
 import { useForm, SubmitHandler } from 'react-hook-form';
@@ -363,27 +364,30 @@ const VisitorManagement: React.FC = () => {
               {error && <p className="text-red-600">{error}</p>}
               {currentVisitors.length === 0 && !loading && !error && <p>No current visitors.</p>}
               {currentVisitors.length > 0 && (
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse">
-                    <thead>
-                      <tr className="bg-gray-100">
-                        <th className="border p-2 text-left">Name</th>
-                        <th className="border p-2 text-left">Phone</th>
-                        <th className="border p-2 text-left">Purpose</th>
-                        <th className="border p-2 text-left">Check-In</th>
-                        <th className="border p-2 text-left">Unit</th>
-                        <th className="border p-2 text-left">Action</th>
+                <div className="overflow-x-auto shadow-md rounded-lg">
+                  <table className="w-full text-sm text-left text-gray-700 bg-white border border-gray-200">
+                    <thead className="bg-primary hover:bg-primary/90 text-white focus:ring-primary">
+                      <tr>
+                        <th className="px-6 py-3 border-b-2 border-blue-300">Name</th>
+                        <th className="px-6 py-3 border-b-2 border-blue-300">Phone</th>
+                        <th className="px-6 py-3 border-b-2 border-blue-300">Purpose</th>
+                        <th className="px-6 py-3 border-b-2 border-blue-300">Check-In</th>
+                        <th className="px-6 py-3 border-b-2 border-blue-300">Unit</th>
+                        <th className="px-6 py-3 border-b-2 border-blue-300">Action</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {currentVisitors.map((visitor) => (
-                        <tr key={visitor.id}>
-                          <td className="border p-2">{visitor.name}</td>
-                          <td className="border p-2">{visitor.phone}</td>
-                          <td className="border p-2">{visitor.purpose}</td>
-                          <td className="border p-2">{visitor.check_in ? formatDateTimeToIST(visitor.check_in) : 'Pending'}</td>
-                          <td className="border p-2">{visitor.unit || 'N/A'}</td>
-                          <td className="border p-2">
+                      {currentVisitors.map((visitor, index) => (
+                        <tr
+                          key={visitor.id}
+                          className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white hover:bg-gray-100 transition-colors'}
+                        >
+                          <td className="px-6 py-4 border-b border-gray-200">{visitor.name}</td>
+                          <td className="px-6 py-4 border-b border-gray-200">{visitor.phone}</td>
+                          <td className="px-6 py-4 border-b border-gray-200">{visitor.purpose}</td>
+                          <td className="px-6 py-4 border-b border-gray-200">{visitor.check_in ? formatDateTimeToIST(visitor.check_in) : 'Pending'}</td>
+                          <td className="px-6 py-4 border-b border-gray-200">{visitor.unit || 'N/A'}</td>
+                          <td className="px-6 py-4 border-b border-gray-200">
                             {visitor.check_in ? (
                               <Button
                                 variant="destructive"
@@ -452,27 +456,32 @@ const VisitorManagement: React.FC = () => {
             {error && <p className="text-red-600">{error}</p>}
             {visitorHistory.length === 0 && !loading && !error && <p>No visitor history.</p>}
             {visitorHistory.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="border p-2 text-left">Name</th>
-                      <th className="border p-2 text-left">Phone</th>
-                      <th className="border p-2 text-left">Purpose</th>
-                      <th className="border p-2 text-left">Check-In</th>
-                      <th className="border p-2 text-left">Check-Out</th>
-                      <th className="border p-2 text-left">Unit</th>
+              <div className="overflow-x-auto shadow-md rounded-lg">
+                <table className="w-full text-sm text-left text-gray-700 bg-white border border-gray-200">
+                  <thead className="bg-primary hover:bg-primary/90 text-white focus:ring-primary">
+                    <tr>
+                      <th className="px-6 py-3 border-b-2 border-blue-300">Name</th>
+                      <th className="px-6 py-3 border-b-2 border-blue-300">Phone</th>
+                      <th className="px-6 py-3 border-b-2 border-blue-300">Purpose</th>
+                      <th className="px-6 py-3 border-b-2 border-blue-300">Check-In</th>
+                      <th className="px-6 py-3 border-b-2 border-blue-300">Check-Out</th>
+                      <th className="px-6 py-3 border-b-2 border-blue-300">Unit</th>
+                      {role === 'resident' && <th className="px-6 py-3 border-b-2 border-blue-300">PIN</th>}
                     </tr>
                   </thead>
                   <tbody>
-                    {visitorHistory.map((visitor) => (
-                      <tr key={visitor.id}>
-                        <td className="border p-2">{visitor.name}</td>
-                        <td className="border p-2">{visitor.phone}</td>
-                        <td className="border p-2">{visitor.purpose}</td>
-                        <td className="border p-2">{visitor.check_in ? formatDateTimeToIST(visitor.check_in) : 'N/A'}</td>
-                        <td className="border p-2">{visitor.check_out ? formatDateTimeToIST(visitor.check_out) : 'N/A'}</td>
-                        <td className="border p-2">{visitor.unit || 'N/A'}</td>
+                    {visitorHistory.map((visitor, index) => (
+                      <tr
+                        key={visitor.id}
+                        className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white hover:bg-gray-100 transition-colors'}
+                      >
+                        <td className="px-6 py-4 border-b border-gray-200">{visitor.name}</td>
+                        <td className="px-6 py-4 border-b border-gray-200">{visitor.phone}</td>
+                        <td className="px-6 py-4 border-b border-gray-200">{visitor.purpose}</td>
+                        <td className="px-6 py-4 border-b border-gray-200">{visitor.check_in ? formatDateTimeToIST(visitor.check_in) : 'N/A'}</td>
+                        <td className="px-6 py-4 border-b border-gray-200">{visitor.check_out ? formatDateTimeToIST(visitor.check_out) : 'N/A'}</td>
+                        <td className="px-6 py-4 border-b border-gray-200">{visitor.unit || 'N/A'}</td>
+                        {role === 'resident' && <td className="px-6 py-4 border-b border-gray-200">{visitor.pin || 'N/A'}</td>}
                       </tr>
                     ))}
                   </tbody>

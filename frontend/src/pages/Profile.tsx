@@ -9,24 +9,26 @@ const Profile: React.FC = () => {
   }
 
   return (
-    <div className="p-6 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Profile</h1>
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Name</label>
-          <p className="mt-1 text-gray-900">{user.name}</p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Phone Number</label>
-          <p className="mt-1 text-gray-900">{user.phone_number}</p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Unit</label>
-          <p className="mt-1 text-gray-900">{user.unit || 'N/A'}</p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Role</label>
-          <p className="mt-1 text-gray-900">{user.role}</p>
+    <div className="p-6 max-w-2xl mx-auto">
+      <h1 className="text-3xl font-bold text-primary hover:text-primary/90 mb-8 border-b-2 border-primary pb-2 focus:ring-primary">Profile</h1>
+      <div className="bg-white shadow-md rounded-lg p-6">
+        <div className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-primary uppercase tracking-wide">Name</label>
+            <p className="mt-1 text-lg text-gray-900 font-semibold">{user.name}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-primary uppercase tracking-wide">Phone Number</label>
+            <p className="mt-1 text-lg text-gray-900 font-semibold">{user.phone_number}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-primary uppercase tracking-wide">Unit</label>
+            <p className="mt-1 text-lg text-gray-900 font-semibold">{user.unit || 'N/A'}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-primary uppercase tracking-wide">Role</label>
+            <p className="mt-1 text-lg text-gray-900 font-semibold">{user.role}</p>
+          </div>
         </div>
       </div>
     </div>
