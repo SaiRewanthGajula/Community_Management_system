@@ -1,4 +1,10 @@
-import React from 'react';
+// frontend/src/components/common/Tabs.tsx
+import React, { useContext } from 'react';
+
+interface TabsContextValue {
+  value: string;
+  onValueChange: (value: string) => void;
+}
 
 type TabsProps = {
   value: string;
@@ -24,26 +30,19 @@ type TabsContentProps = {
   className?: string;
 };
 
+// Create context with proper TypeScript type
+const TabsContext = React.createContext<TabsContextValue | undefined>(undefined);
+
 export const Tabs: React.FC<TabsProps> = ({ 
   value, 
   onValueChange, 
   children, 
   className = '' 
 }) => {
-  // Create context to pass down the active tab value
-  const TabsContext = React.createContext({ value, onValueChange });
-  
   return (
     <TabsContext.Provider value={{ value, onValueChange }}>
       <div className={`w-full ${className}`}>
-        {React.Children.map(children, child => {
-          if (React.isValidElement(child)) {
-            return React.cloneElement(child as React.ReactElement<any>, {
-              tabsContext: TabsContext,
-            });
-          }
-          return child;
-        })}
+        {children}
       </div>
     </TabsContext.Provider>
   );
@@ -51,21 +50,11 @@ export const Tabs: React.FC<TabsProps> = ({
 
 export const TabsList: React.FC<TabsListProps> = ({ 
   children, 
-  className = '',
-  ...props
+  className = '' 
 }) => {
-  const tabsContext = (props as any).tabsContext;
-  
   return (
     <div className={`flex border-b border-gray-200 ${className}`}>
-      {React.Children.map(children, child => {
-        if (React.isValidElement(child)) {
-          return React.cloneElement(child as React.ReactElement<any>, {
-            tabsContext,
-          });
-        }
-        return child;
-      })}
+      {children}
     </div>
   );
 };
@@ -73,11 +62,16 @@ export const TabsList: React.FC<TabsListProps> = ({
 export const TabsTrigger: React.FC<TabsTriggerProps> = ({ 
   value, 
   children, 
-  className = '',
-  ...props
+  className = '' 
 }) => {
-  const tabsContext = (props as any).tabsContext;
-  const isActive = tabsContext?.value === value;
+  const tabsContext = useContext(TabsContext);
+  
+  if (!tabsContext) {
+    throw new Error('TabsTrigger must be used within a Tabs component');
+  }
+
+  const { value: activeValue, onValueChange } = tabsContext;
+  const isActive = activeValue === value;
   
   return (
     <button
@@ -89,7 +83,7 @@ export const TabsTrigger: React.FC<TabsTriggerProps> = ({
         }
         ${className}
       `}
-      onClick={() => tabsContext?.onValueChange(value)}
+      onClick={() => onValueChange(value)}
     >
       <div className="flex items-center">
         {children}
@@ -101,11 +95,16 @@ export const TabsTrigger: React.FC<TabsTriggerProps> = ({
 export const TabsContent: React.FC<TabsContentProps> = ({ 
   value, 
   children, 
-  className = '',
-  ...props
+  className = '' 
 }) => {
-  const tabsContext = (props as any).tabsContext;
-  const isActive = tabsContext?.value === value;
+  const tabsContext = useContext(TabsContext);
+  
+  if (!tabsContext) {
+    throw new Error('TabsContent must be used within a Tabs component');
+  }
+
+  const { value: activeValue } = tabsContext;
+  const isActive = activeValue === value;
   
   if (!isActive) return null;
   

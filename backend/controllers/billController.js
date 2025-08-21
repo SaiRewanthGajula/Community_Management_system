@@ -118,3 +118,41 @@ exports.deleteBill = async (req, res) => {
     res.status(500).json({ error: 'Database error', details: err.message });
   }
 };
+
+exports.payBill = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const role = req.user.role;
+
+    const [bills] = await db.execute('SELECT * FROM bills WHERE id = ?', [id]);
+    if (bills.length === 0) {
+      return res.status(404).json({ error: 'Bill not found' });
+    }
+    const bill = bills[0];
+
+    if (role !== 'admin' && bill.user_id !== userId) {
+      return res.status(403).json({ error: 'Unauthorized to pay this bill' });
+    }
+
+    if (bill.status === 'paid') {
+      return res.status(400).json({ error: 'Bill already paid' });
+    }
+
+    // TODO: Integrate with payment gateway (e.g., Razorpay)
+    const paymentSuccess = true; // Placeholder
+    if (paymentSuccess) {
+      await db.execute(
+        'UPDATE bills SET status = ?, paid_date = NOW(), updated_at = NOW() WHERE id = ?',
+        ['paid', id]
+      );
+      const [updatedBill] = await db.execute('SELECT * FROM bills WHERE id = ?', [id]);
+      res.json(updatedBill[0]);
+    } else {
+      res.status(400).json({ error: 'Payment failed' });
+    }
+  } catch (err) {
+    console.error('Error processing payment:', err.message, err.stack);
+    res.status(500).json({ error: 'Database error', details: err.message });
+  }
+};

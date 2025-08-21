@@ -1,334 +1,484 @@
-import React, { useState } from 'react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/common/Tabs';
-import Card from '../components/common/Card';
-import Button from '../components/common/Button';
-import Input from '../components/common/Input';
-import {
-  UserPlus,
-  Clock,
-  Check,
-  X,
-  Share2,
-  QrCode,
-  Calendar,
-  Phone,
-  Mail,
-  Home
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/common/Tabs';
+import Button  from '../components/common/Button';
+import Input  from '../components/common/Input';
+import  Card  from '../components/common/Card';
+import axios, { AxiosResponse } from 'axios';
+import { useForm, SubmitHandler } from 'react-hook-form';
+import { z } from 'zod';
+import { zodResolver } from '@hookform/resolvers/zod';
+
+interface Visitor {
+  id: number;
+  name: string;
+  phone: string;
+  email: string | null;
+  address: string | null;
+  purpose: string;
+  check_in: string | null;
+  check_out: string | null;
+  user_id: number | null;
+  unit: string | null;
+  pin: string | null;
+}
+
+interface FormInputs {
+  name: string;
+  phone: string;
+  email?: string | null;
+  address?: string | null;
+  purpose: string;
+  unit?: string | null;
+}
+
+interface PinFormInputs {
+  pin: string;
+}
+
+interface User {
+  id: number;
+  name: string;
+  phone_number: string;
+  employee_id: string;
+  role: string;
+}
+
+const schema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters').max(100),
+  phone: z.string().regex(/^[0-9]{10}$/, 'Phone must be a 10-digit number'),
+  email: z.string().email('Invalid email').nullable().optional(),
+  address: z.string().max(200, 'Address must be 200 characters or less').nullable().optional(),
+  purpose: z.string().min(5, 'Purpose must be at least 5 characters').max(100),
+  unit: z.string().max(50, 'Unit must be 50 characters or less').nullable().optional(),
+});
+
+const pinSchema = z.object({
+  pin: z.string().regex(/^[0-9]{4}$/, 'PIN must be a 4-digit number'),
+});
 
 const VisitorManagement: React.FC = () => {
   const [activeTab, setActiveTab] = useState('register');
-  const [visitorName, setVisitorName] = useState('');
-  const [purpose, setPurpose] = useState('');
-  const [expectedTime, setExpectedTime] = useState('');
-  const [expectedDate, setExpectedDate] = useState('');
-  const [phone, setPhone] = useState('');
-  const [submittedVisitor, setSubmittedVisitor] = useState<any>(null);
+  const [currentVisitors, setCurrentVisitors] = useState<Visitor[]>([]);
+  const [visitorHistory, setVisitorHistory] = useState<Visitor[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pinVerificationId, setPinVerificationId] = useState<number | null>(null);
+  const [checkedInVisitors, setCheckedInVisitors] = useState<Set<number>>(new Set());
+  const [responseData, setResponseData] = useState<Visitor | null>(null); // State to store registration response
+  const navigate = useNavigate();
 
-  // Sample visitor history data
-  const visitorHistory = [
-    {
-      id: 1,
-      name: 'John Smith',
-      purpose: 'Delivery',
-      date: '2025-05-15',
-      time: '10:30 AM',
-      status: 'checked-out',
-      checkInTime: '10:32 AM',
-      checkOutTime: '10:45 AM'
+  // Retrieve and parse user from localStorage
+  const userData = localStorage.getItem('societyUser') ? JSON.parse(localStorage.getItem('societyUser')!) : null;
+  const role = userData?.role;
+
+  // Debug user data
+  useEffect(() => {
+    console.log('User Data:', userData);
+  }, [userData]);
+
+  // Debug role value
+  useEffect(() => {
+    console.log('User Role:', role);
+  }, [role]);
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<FormInputs>({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      name: '',
+      phone: '',
+      email: null,
+      address: null,
+      purpose: '',
+      unit: null,
     },
-    {
-      id: 2,
-      name: 'Sarah Johnson',
-      purpose: 'Guest',
-      date: '2025-05-14',
-      time: '04:00 PM',
-      status: 'checked-out',
-      checkInTime: '04:15 PM',
-      checkOutTime: '07:30 PM'
-    },
-    {
-      id: 3,
-      name: 'Mike Wilson',
-      purpose: 'Maintenance',
-      date: '2025-05-16',
-      time: '02:00 PM',
-      status: 'expected',
-      checkInTime: null,
-      checkOutTime: null
+  });
+
+  const {
+    register: registerPin,
+    handleSubmit: handlePinSubmit,
+    reset: resetPin,
+    formState: { errors: pinErrors },
+  } = useForm<PinFormInputs>({
+    resolver: zodResolver(pinSchema),
+    defaultValues: { pin: '' },
+  });
+
+  const apiBase = import.meta.env.VITE_BACKEND_API_URL.replace(/\/+$/, '');
+  const token = localStorage.getItem('societyToken');
+
+  const fetchCurrentVisitors = async () => {
+    if (!token) {
+      setError('Please log in to view visitors');
+      navigate('/login');
+      return;
     }
-  ];
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const visitor = {
-      id: Date.now(),
-      name: visitorName,
-      purpose,
-      date: expectedDate,
-      time: expectedTime,
-      status: 'expected',
-      phone
-    };
-    
-    setSubmittedVisitor(visitor);
-    setActiveTab('confirmation');
-    
-    // Reset form
-    setVisitorName('');
-    setPurpose('');
-    setExpectedTime('');
-    setExpectedDate('');
-    setPhone('');
+    setLoading(true);
+    try {
+      const response: AxiosResponse<Visitor[]> = await axios.get(`${apiBase}/visitors/current`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      console.log('FetchCurrentVisitors Response:', response.data); // Debug log
+      setCurrentVisitors(response.data);
+      const checkedIn = new Set<number>(
+        response.data
+          .filter((visitor) => visitor.check_in && !visitor.check_out)
+          .map((visitor) => visitor.id)
+      );
+      setCheckedInVisitors(checkedIn);
+    } catch (err: any) {
+      handleApiError(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const resetForm = () => {
-    setSubmittedVisitor(null);
-    setActiveTab('register');
+  const fetchVisitorHistory = async () => {
+    if (!token) {
+      setError('Please log in to view visitor history');
+      navigate('/login');
+      return;
+    }
+    setLoading(true);
+    try {
+      const response: AxiosResponse<Visitor[]> = await axios.get(`${apiBase}/visitors/history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setVisitorHistory(response.data);
+    } catch (err: any) {
+      handleApiError(err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const handleApiError = (err: any) => {
+    if (axios.isAxiosError(err)) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        localStorage.removeItem('societyToken');
+        setError('Session expired. Please log in again.');
+        navigate('/login');
+      } else {
+        setError(err.response?.data?.message || 'An error occurred');
+      }
+    } else {
+      setError('An unexpected error occurred');
+    }
+  };
+
+  const onSubmit: SubmitHandler<FormInputs> = async (data) => {
+    if (!token) {
+      setError('Please log in to register visitors');
+      navigate('/login');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const response: AxiosResponse<Visitor> = await axios.post(`${apiBase}/visitors/checkin`, data, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      console.log('CheckIn Response:', response.data); // Debug log
+      setResponseData(response.data); // Store the response with pin
+      reset();
+      fetchCurrentVisitors();
+    } catch (err: any) {
+      handleApiError(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePinVerification = async (data: PinFormInputs, visitorId: number) => {
+    if (!token) {
+      setError('Please log in to verify PIN');
+      navigate('/login');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const response: AxiosResponse<Visitor> = await axios.post(
+        `${apiBase}/visitors/verify-pin/${visitorId}`,
+        { pin: data.pin },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      console.log('VerifyPin Response:', response.data); // Debug log
+      setPinVerificationId(null);
+      resetPin();
+      setCheckedInVisitors((prev) => new Set([...prev, visitorId]));
+      fetchCurrentVisitors();
+      fetchVisitorHistory();
+    } catch (err: any) {
+      handleApiError(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCheckOut = async (visitorId: number) => {
+    if (!token) {
+      setError('Please log in to check out visitors');
+      navigate('/login');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await axios.post(
+        `${apiBase}/visitors/checkout/${visitorId}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setCheckedInVisitors((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(visitorId);
+        return newSet;
+      });
+      fetchCurrentVisitors();
+      fetchVisitorHistory();
+    } catch (err: any) {
+      handleApiError(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatDateTimeToIST = (dateString: string) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      return new Intl.DateTimeFormat('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        dateStyle: 'short',
+        timeStyle: 'short',
+      }).format(date);
+    } catch {
+      return dateString;
+    }
+  };
+
+  useEffect(() => {
+    if (role === 'security') {
+      setActiveTab('current');
+    }
+    fetchCurrentVisitors();
+    fetchVisitorHistory();
+  }, [role]);
+
+  // Clear responseData after 10 seconds
+  useEffect(() => {
+    const timer = responseData ? setTimeout(() => setResponseData(null), 10000) : null;
+    return () => timer ? clearTimeout(timer) : undefined;
+  }, [responseData]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-gray-800">Visitor Management</h1>
-      </div>
-      
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-6">Visitor Management</h1>
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="register">
-            <UserPlus className="w-4 h-4 mr-2" />
-            Register
-          </TabsTrigger>
-          {submittedVisitor && (
-            <TabsTrigger value="confirmation">
-              <Check className="w-4 h-4 mr-2" />
-              Confirmation
-            </TabsTrigger>
-          )}
-          <TabsTrigger value="history">
-            <Clock className="w-4 h-4 mr-2" />
-            History
-          </TabsTrigger>
+          {role === 'resident' && <TabsTrigger value="register">Register Visitor</TabsTrigger>}
+          {role === 'security' && <TabsTrigger value="current">Current Visitors</TabsTrigger>}
+          <TabsTrigger value="history">Visitor History</TabsTrigger>
         </TabsList>
-        
-        <TabsContent value="register" className="pt-4">
-          <Card>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <h2 className="text-lg font-medium text-gray-800 mb-4">Pre-register a Visitor</h2>
-              
-              <Input
-                label="Visitor Name"
-                value={visitorName}
-                onChange={(e) => setVisitorName(e.target.value)}
-                placeholder="Enter visitor's full name"
-                fullWidth
-                required
-              />
-              
-              <Input
-                label="Phone Number"
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="Enter visitor's phone number"
-                fullWidth
-                required
-              />
-              
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Input
-                  label="Expected Date"
-                  type="date"
-                  value={expectedDate}
-                  onChange={(e) => setExpectedDate(e.target.value)}
-                  fullWidth
-                  required
-                />
-                
-                <Input
-                  label="Expected Time"
-                  type="time"
-                  value={expectedTime}
-                  onChange={(e) => setExpectedTime(e.target.value)}
-                  fullWidth
-                  required
-                />
-              </div>
-              
-              <div>
-                <label className="block mb-1 text-sm font-medium text-gray-700">
-                  Purpose of Visit
-                </label>
-                <select
-                  value={purpose}
-                  onChange={(e) => setPurpose(e.target.value)}
-                  className="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
-                  required
-                >
-                  <option value="">Select purpose</option>
-                  <option value="Guest">Guest</option>
-                  <option value="Delivery">Delivery</option>
-                  <option value="Maintenance">Maintenance</option>
-                  <option value="Services">Services</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              
-              <div className="pt-4">
-                <Button type="submit" fullWidth>
-                  Register Visitor
-                </Button>
-              </div>
-            </form>
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="confirmation" className="pt-4">
-          {submittedVisitor && (
-            <Card className="overflow-visible">
-              <div className="text-center">
-                <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mb-4">
-                  <Check className="w-8 h-8 text-green-600" />
+
+        {role === 'resident' && (
+          <TabsContent value="register">
+            <Card className="p-6 max-w-md mx-auto">
+              <h2 className="text-xl font-semibold mb-4">Register New Visitor</h2>
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+                <div>
+                  <Input
+                    label="Name"
+                    {...register('name')}
+                    error={errors.name?.message}
+                    fullWidth
+                  />
                 </div>
-                <h2 className="text-xl font-semibold text-gray-800 mb-2">Visitor Registered Successfully!</h2>
-                <p className="text-sm text-gray-600 mb-6">
-                  Your visitor has been pre-registered. Please share the details with them.
-                </p>
-              </div>
-              
-              <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs text-gray-500">Visitor</p>
-                    <p className="text-sm font-medium flex items-center">
-                      <UserPlus className="w-4 h-4 mr-1 text-gray-400" />
-                      {submittedVisitor.name}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Purpose</p>
-                    <p className="text-sm font-medium">{submittedVisitor.purpose}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Date</p>
-                    <p className="text-sm font-medium flex items-center">
-                      <Calendar className="w-4 h-4 mr-1 text-gray-400" />
-                      {submittedVisitor.date}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Time</p>
-                    <p className="text-sm font-medium flex items-center">
-                      <Clock className="w-4 h-4 mr-1 text-gray-400" />
-                      {submittedVisitor.time}
-                    </p>
-                  </div>
+                <div>
+                  <Input
+                    label="Phone"
+                    {...register('phone')}
+                    error={errors.phone?.message}
+                    fullWidth
+                  />
                 </div>
-              </div>
-              
-              <div className="mb-6 flex justify-center">
-                <div className="bg-white p-2 border border-gray-200 rounded-lg">
-                  <QrCode className="w-32 h-32 mx-auto text-primary" />
-                  <p className="text-center text-xs mt-1 font-medium">VISITOR-{submittedVisitor.id}</p>
+                <div>
+                  <Input
+                    label="Email"
+                    {...register('email')}
+                    error={errors.email?.message}
+                    fullWidth
+                  />
                 </div>
-              </div>
-              
-              <div className="flex flex-col space-y-3">
-                <Button fullWidth>
-                  <Share2 className="w-4 h-4 mr-2" />
-                  Share with Visitor
+                <div>
+                  <Input
+                    label="Address"
+                    {...register('address')}
+                    error={errors.address?.message}
+                    fullWidth
+                  />
+                </div>
+                <div>
+                  <Input
+                    label="Purpose of Visit"
+                    {...register('purpose')}
+                    error={errors.purpose?.message}
+                    fullWidth
+                  />
+                </div>
+                <div>
+                  <Input
+                    label="Unit"
+                    {...register('unit')}
+                    error={errors.unit?.message}
+                    fullWidth
+                  />
+                </div>
+                <Button type="submit" disabled={loading}>
+                  {loading ? 'Submitting...' : 'Register Visitor'}
                 </Button>
-                <Button variant="outline" onClick={resetForm}>
-                  Register Another Visitor
-                </Button>
-              </div>
+              </form>
+              {error && <p className="text-red-600 mt-4">{error}</p>}
+              {responseData?.pin && (
+                <div className="mt-4">
+                  <h3 className="text-lg font-semibold">Visitor PIN</h3>
+                  <p className="text-sm text-gray-700">PIN: {responseData.pin}</p>
+                </div>
+              )}
             </Card>
-          )}
-        </TabsContent>
-        
-        <TabsContent value="history" className="pt-4">
-          <Card>
-            <h2 className="text-lg font-medium text-gray-800 mb-4">Visitor History</h2>
-            
-            <div className="space-y-4">
-              {visitorHistory.map((visitor) => (
-                <div 
-                  key={visitor.id} 
-                  className="p-4 border border-gray-100 rounded-lg hover:border-gray-200 transition-colors"
-                >
-                  <div className="flex items-start">
-                    <div className={`p-2 rounded-full mr-4 ${
-                      visitor.status === 'checked-out' 
-                        ? 'bg-green-100' 
-                        : visitor.status === 'checked-in' 
-                          ? 'bg-blue-100' 
-                          : 'bg-amber-100'
-                    }`}>
-                      {visitor.status === 'checked-out' ? (
-                        <Check className={`w-5 h-5 text-green-600`} />
-                      ) : visitor.status === 'checked-in' ? (
-                        <Home className={`w-5 h-5 text-blue-600`} />
-                      ) : (
-                        <Clock className={`w-5 h-5 text-amber-600`} />
-                      )}
-                    </div>
-                    
-                    <div className="flex-1">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h3 className="font-medium text-gray-800">{visitor.name}</h3>
-                          <p className="text-sm text-gray-600">{visitor.purpose}</p>
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {visitor.date} · {visitor.time}
-                        </div>
-                      </div>
-                      
-                      <div className="mt-2 flex items-center text-xs">
-                        <div className={`flex items-center ${
-                          visitor.status === 'checked-out' || visitor.status === 'checked-in'
-                            ? 'text-green-600' 
-                            : 'text-gray-400'
-                        }`}>
-                          <div className="w-6 h-6 rounded-full border-2 border-current flex items-center justify-center">
-                            <Check className="w-3 h-3" />
-                          </div>
-                          <div className="ml-1">Registered</div>
-                        </div>
-                        
-                        <div className="w-8 h-0.5 bg-gray-200"></div>
-                        
-                        <div className={`flex items-center ${
-                          visitor.status === 'checked-out' || visitor.status === 'checked-in'
-                            ? 'text-green-600' 
-                            : 'text-gray-400'
-                        }`}>
-                          <div className="w-6 h-6 rounded-full border-2 border-current flex items-center justify-center">
-                            <Home className="w-3 h-3" />
-                          </div>
-                          <div className="ml-1">
-                            {visitor.checkInTime ? `Checked In (${visitor.checkInTime})` : 'Check In'}
-                          </div>
-                        </div>
-                        
-                        <div className="w-8 h-0.5 bg-gray-200"></div>
-                        
-                        <div className={`flex items-center ${
-                          visitor.status === 'checked-out' ? 'text-green-600' : 'text-gray-400'
-                        }`}>
-                          <div className="w-6 h-6 rounded-full border-2 border-current flex items-center justify-center">
-                            <X className="w-3 h-3" />
-                          </div>
-                          <div className="ml-1">
-                            {visitor.checkOutTime ? `Checked Out (${visitor.checkOutTime})` : 'Check Out'}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+          </TabsContent>
+        )}
+
+        {role === 'security' && (
+          <TabsContent value="current">
+            <Card className="p-6">
+              <h2 className="text-xl font-semibold mb-4">Current Visitors</h2>
+              {loading && <p>Loading...</p>}
+              {error && <p className="text-red-600">{error}</p>}
+              {currentVisitors.length === 0 && !loading && !error && <p>No current visitors.</p>}
+              {currentVisitors.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border p-2 text-left">Name</th>
+                        <th className="border p-2 text-left">Phone</th>
+                        <th className="border p-2 text-left">Purpose</th>
+                        <th className="border p-2 text-left">Check-In</th>
+                        <th className="border p-2 text-left">Unit</th>
+                        <th className="border p-2 text-left">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {currentVisitors.map((visitor) => (
+                        <tr key={visitor.id}>
+                          <td className="border p-2">{visitor.name}</td>
+                          <td className="border p-2">{visitor.phone}</td>
+                          <td className="border p-2">{visitor.purpose}</td>
+                          <td className="border p-2">{visitor.check_in ? formatDateTimeToIST(visitor.check_in) : 'Pending'}</td>
+                          <td className="border p-2">{visitor.unit || 'N/A'}</td>
+                          <td className="border p-2">
+                            {visitor.check_in ? (
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => handleCheckOut(visitor.id)}
+                                disabled={loading}
+                              >
+                                Check Out
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setPinVerificationId(visitor.id)}
+                                disabled={loading}
+                              >
+                                Check In
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              ))}
-            </div>
+              )}
+              {pinVerificationId && (
+                <div className="mt-4">
+                  <h3 className="text-lg font-semibold">Verify PIN</h3>
+                  <form
+                    onSubmit={handlePinSubmit((data) => handlePinVerification(data, pinVerificationId))}
+                    className="space-y-4 max-w-md"
+                  >
+                    <Input
+                      label="Enter 4-Digit PIN"
+                      {...registerPin('pin')}
+                      error={pinErrors.pin?.message}
+                      fullWidth
+                    />
+                    <div className="flex space-x-2">
+                      <Button type="submit" disabled={loading}>
+                        {loading ? 'Verifying...' : 'Verify PIN'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setPinVerificationId(null);
+                          resetPin();
+                        }}
+                        disabled={loading}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </form>
+                </div>
+              )}
+            </Card>
+          </TabsContent>
+        )}
+
+        <TabsContent value="history">
+          <Card className="p-6">
+            <h2 className="text-xl font-semibold mb-4">Visitor History</h2>
+            {loading && <p>Loading...</p>}
+            {error && <p className="text-red-600">{error}</p>}
+            {visitorHistory.length === 0 && !loading && !error && <p>No visitor history.</p>}
+            {visitorHistory.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="border p-2 text-left">Name</th>
+                      <th className="border p-2 text-left">Phone</th>
+                      <th className="border p-2 text-left">Purpose</th>
+                      <th className="border p-2 text-left">Check-In</th>
+                      <th className="border p-2 text-left">Check-Out</th>
+                      <th className="border p-2 text-left">Unit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visitorHistory.map((visitor) => (
+                      <tr key={visitor.id}>
+                        <td className="border p-2">{visitor.name}</td>
+                        <td className="border p-2">{visitor.phone}</td>
+                        <td className="border p-2">{visitor.purpose}</td>
+                        <td className="border p-2">{visitor.check_in ? formatDateTimeToIST(visitor.check_in) : 'N/A'}</td>
+                        <td className="border p-2">{visitor.check_out ? formatDateTimeToIST(visitor.check_out) : 'N/A'}</td>
+                        <td className="border p-2">{visitor.unit || 'N/A'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
         </TabsContent>
       </Tabs>

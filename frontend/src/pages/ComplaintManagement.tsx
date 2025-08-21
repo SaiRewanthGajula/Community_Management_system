@@ -12,6 +12,68 @@ const getApiUrl = (endpoint: string) => {
   return `${baseUrl}${endpoint}`;
 };
 
+// Utility function to format date and time in IST with proper formatting
+const formatDateTimeToIST = (dateString: string) => {
+  if (!dateString) return 'N/A';
+  
+  try {
+    // Create a date object from the input string
+    const date = new Date(dateString);
+    
+    // Get the current timezone offset in minutes
+    const timezoneOffset = date.getTimezoneOffset();
+    
+    // Convert to IST (UTC+5:30)
+    // IST is UTC+5:30, which is 330 minutes ahead of UTC
+    // getTimezoneOffset() returns the difference in minutes between UTC and local time
+    // So we need to adjust for both the local timezone and IST
+    const istOffset = 330; // IST is UTC+5:30 = 330 minutes
+    const totalOffset = timezoneOffset + istOffset;
+    const istTime = new Date(date.getTime() + totalOffset * 60 * 1000);
+    
+    // Get date components
+    const day = String(istTime.getDate()).padStart(2, '0');
+    const month = String(istTime.getMonth() + 1).padStart(2, '0');
+    const year = istTime.getFullYear();
+    
+    // Get time components
+    let hours = istTime.getHours();
+    const minutes = String(istTime.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12; // the hour '0' should be '12'
+    const formattedHours = String(hours).padStart(2, '0');
+    
+    return `${day}/${month}/${year}, ${formattedHours}:${minutes} ${ampm}`;
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    
+    // Fallback: try to format with toLocaleString
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (e) {
+      return dateString; // Return original if parsing fails
+    }
+  }
+};
+
+// Utility function to get current date in IST format for form inputs
+const getCurrentISTDate = () => {
+  const now = new Date();
+  const offset = 5.5 * 60 * 60 * 1000; // IST offset is UTC+5:30
+  const istTime = new Date(now.getTime() + offset);
+  return istTime.toISOString().split('T')[0];
+};
+
 interface Complaint {
   id: number;
   user_id: number;
@@ -23,6 +85,7 @@ interface Complaint {
   priority: 'low' | 'medium' | 'high';
   resolution_description: string | null;
   resolved_by: number | null;
+  resolved_at: string | null;
 }
 
 const ComplaintManagement: React.FC = () => {
@@ -33,7 +96,7 @@ const ComplaintManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [priorityFilter, setPriorityFilter] = useState<string>('');
   const [startDateFilter, setStartDateFilter] = useState<string>('');
-  const [endDateFilter, setEndDateFilter] = useState<string>(''); // Fixed: Changed setStartDateFilter to setEndDateFilter
+  const [endDateFilter, setEndDateFilter] = useState<string>('');
   const [showNewModal, setShowNewModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -59,7 +122,7 @@ const ComplaintManagement: React.FC = () => {
       try {
         setLoading(true);
         const apiUrl = getApiUrl('/complaints');
-        console.log('Fetching complaints from:', apiUrl); // Debug log
+        console.log('Fetching complaints from:', apiUrl);
         const response = await axios.get(apiUrl, {
           headers: { Authorization: `Bearer ${localStorage.getItem('societyToken')}` },
         });
@@ -106,9 +169,17 @@ const ComplaintManagement: React.FC = () => {
       complaint.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       complaint.unit.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesPriority = !priorityFilter || complaint.priority === priorityFilter;
+    
+    // Convert complaint date to IST for filtering (date only)
+    const complaintDate = new Date(complaint.date);
+    const complaintDateOnly = complaintDate.toLocaleDateString('en-IN', {
+      timeZone: 'Asia/Kolkata'
+    });
+    
     const matchesDate =
-      (!startDateFilter || complaint.date >= startDateFilter) &&
-      (!endDateFilter || complaint.date <= endDateFilter);
+      (!startDateFilter || complaintDateOnly >= startDateFilter) &&
+      (!endDateFilter || complaintDateOnly <= endDateFilter);
+    
     return matchesSearch && matchesPriority && matchesDate;
   });
 
@@ -123,7 +194,7 @@ const ComplaintManagement: React.FC = () => {
 
     try {
       const apiUrl = getApiUrl('/complaints');
-      console.log('Creating complaint at:', apiUrl); // Debug log
+      console.log('Creating complaint at:', apiUrl);
       const response = await axios.post(
         apiUrl,
         {
@@ -149,6 +220,7 @@ const ComplaintManagement: React.FC = () => {
         priority: response.data.priority,
         resolution_description: response.data.resolution_description,
         resolved_by: response.data.resolved_by,
+        resolved_at: response.data.resolved_at,
       };
 
       setComplaints([newComplaintData, ...complaints]);
@@ -174,7 +246,7 @@ const ComplaintManagement: React.FC = () => {
 
     try {
       const apiUrl = getApiUrl(`/complaints/${selectedComplaint?.id}`);
-      console.log('Updating complaint at:', apiUrl); // Debug log
+      console.log('Updating complaint at:', apiUrl);
       const response = await axios.put(
         apiUrl,
         {
@@ -200,6 +272,7 @@ const ComplaintManagement: React.FC = () => {
         priority: response.data.priority,
         resolution_description: response.data.resolution_description,
         resolved_by: response.data.resolved_by,
+        resolved_at: response.data.resolved_at,
       };
 
       setComplaints(complaints.map((c) => (c.id === updatedComplaint.id ? updatedComplaint : c)));
@@ -212,52 +285,54 @@ const ComplaintManagement: React.FC = () => {
     }
   };
 
-  const handleResolveComplaintSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
+  // In your resolveComplaintSubmit function
+const handleResolveComplaintSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setError('');
 
-    if (!resolveDescription) {
-      setError('Resolution description is required');
-      return;
-    }
+  if (!resolveDescription) {
+    setError('Resolution description is required');
+    return;
+  }
 
-    try {
-      const apiUrl = getApiUrl(`/complaints/${selectedComplaint?.id}/resolve`);
-      console.log('Resolving complaint at:', apiUrl); // Debug log
-      const response = await axios.put(
-        apiUrl,
-        {
-          resolution_description: resolveDescription,
+  try {
+    const apiUrl = getApiUrl(`/complaints/${selectedComplaint?.id}/resolve`);
+    console.log('Resolving complaint at:', apiUrl);
+    const response = await axios.put(
+      apiUrl,
+      {
+        resolution_description: resolveDescription,
+      },
+      {
+        headers: {
+          Authorization: 'Bearer ' + localStorage.getItem('societyToken'),
         },
-        {
-          headers: {
-            Authorization: 'Bearer ' + localStorage.getItem('societyToken'),
-          },
-        }
-      );
+      }
+    );
 
-      const updatedComplaint: Complaint = {
-        id: response.data.id,
-        user_id: response.data.user_id,
-        title: response.data.title,
-        description: response.data.description,
-        status: response.data.status,
-        date: response.data.date,
-        unit: response.data.unit || '',
-        priority: response.data.priority,
-        resolution_description: response.data.resolution_description,
-        resolved_by: response.data.resolved_by,
-      };
+    const updatedComplaint: Complaint = {
+      id: response.data.id,
+      user_id: response.data.user_id,
+      title: response.data.title,
+      description: response.data.description,
+      status: response.data.status,
+      date: response.data.date,
+      unit: response.data.unit || '',
+      priority: response.data.priority,
+      resolution_description: response.data.resolution_description,
+      resolved_by: response.data.resolved_by,
+      resolved_at: response.data.resolved_at || new Date().toISOString(), // Fallback to current date
+    };
 
-      setComplaints(complaints.map((c) => (c.id === updatedComplaint.id ? updatedComplaint : c)));
-      setResolveDescription('');
-      setShowResolveModal(false);
-      setSelectedComplaint(null);
-    } catch (err: any) {
-      console.error('Error resolving complaint:', err);
-      setError(err.response?.data?.error || 'Failed to resolve complaint');
-    }
-  };
+    setComplaints(complaints.map((c) => (c.id === updatedComplaint.id ? updatedComplaint : c)));
+    setResolveDescription('');
+    setShowResolveModal(false);
+    setSelectedComplaint(null);
+  } catch (err: any) {
+    console.error('Error resolving complaint:', err);
+    setError(err.response?.data?.error || 'Failed to resolve complaint');
+  }
+};
 
   const handleViewClick = (complaint: Complaint) => {
     setSelectedComplaint(complaint);
@@ -385,7 +460,7 @@ const ComplaintManagement: React.FC = () => {
                     scope="col"
                     className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
                   >
-                    Date
+                    Date & Time (IST)
                   </th>
                   <th
                     scope="col"
@@ -418,7 +493,9 @@ const ComplaintManagement: React.FC = () => {
                       <div className="text-xs text-gray-400 truncate max-w-xs">{complaint.description}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{complaint.unit}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{complaint.date}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatDateTimeToIST(complaint.date)}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(
@@ -562,8 +639,8 @@ const ComplaintManagement: React.FC = () => {
                 <p className="mt-1 text-sm text-gray-900">{selectedComplaint.unit || 'N/A'}</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Date</label>
-                <p className="mt-1 text-sm text-gray-900">{selectedComplaint.date}</p>
+                <label className="block text-sm font-medium text-gray-700">Date & Time (IST)</label>
+                <p className="mt-1 text-sm text-gray-900">{formatDateTimeToIST(selectedComplaint.date)}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Status</label>
@@ -594,6 +671,12 @@ const ComplaintManagement: React.FC = () => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Resolved By (User ID)</label>
                     <p className="mt-1 text-sm text-gray-900">{selectedComplaint.resolved_by?.toString() || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Resolved Date & Time (IST)</label>
+                    <p className="mt-1 text-sm text-gray-900">
+                      {selectedComplaint.resolution_description ? formatDateTimeToIST(selectedComplaint.date) : 'N/A'}
+                    </p>
                   </div>
                 </>
               )}

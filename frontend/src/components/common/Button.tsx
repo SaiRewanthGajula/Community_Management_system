@@ -2,7 +2,7 @@ import React from 'react';
 
 interface ButtonProps {
   children: React.ReactNode;
-  variant?: 'primary' | 'secondary' | 'outline' | 'text';
+  variant?: 'primary' | 'secondary' | 'outline' | 'text' | 'destructive';
   size?: 'sm' | 'md' | 'lg';
   className?: string;
   onClick?: () => void;
@@ -30,6 +30,7 @@ const Button: React.FC<ButtonProps> = ({
     secondary: 'bg-accent hover:bg-accent/90 text-white focus:ring-accent',
     outline: 'border border-gray-300 bg-transparent hover:bg-gray-50 text-gray-700 focus:ring-primary',
     text: 'bg-transparent hover:bg-gray-100 text-gray-700 focus:ring-primary',
+    destructive: 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-600',
   };
   
   const sizeStyles = {

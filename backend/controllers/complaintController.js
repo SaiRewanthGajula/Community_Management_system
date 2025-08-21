@@ -25,10 +25,18 @@ exports.createComplaint = async (req, res) => {
       return res.status(403).json({ error: 'Only residents can submit complaints' });
     }
 
+    // Get current date with time in IST (UTC+5:30)
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
+    const istTime = new Date(now.getTime() + istOffset);
+    
+    // Format for MySQL DATETIME (YYYY-MM-DD HH:MM:SS)
+    const formattedDate = istTime.toISOString().slice(0, 19).replace('T', ' ');
+
     // Insert complaint into database
     const [result] = await db.query(
       'INSERT INTO complaints (user_id, title, description, status, date, unit, priority) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [userId, title, description, 'open', new Date().toISOString().split('T')[0], user.unit || null, priority]
+      [userId, title, description, 'open', formattedDate, user.unit || null, priority]
     );
 
     const complaintId = result.insertId;
@@ -40,11 +48,12 @@ exports.createComplaint = async (req, res) => {
       title,
       description,
       status: 'open',
-      date: new Date().toISOString().split('T')[0],
+      date: formattedDate,
       unit: user.unit || null,
       priority,
       resolution_description: null,
       resolved_by: null,
+      resolved_at: null,
     });
   } catch (err) {
     console.error(err);
@@ -66,8 +75,8 @@ exports.getComplaints = async (req, res) => {
     // Admins see all complaints, residents see only their own
     const query =
       user.role === 'admin'
-        ? 'SELECT id, user_id, title, description, status, date, unit, priority, resolution_description, resolved_by FROM complaints'
-        : 'SELECT id, user_id, title, description, status, date, unit, priority, resolution_description, resolved_by FROM complaints WHERE user_id = ?';
+        ? 'SELECT id, user_id, title, description, status, date, unit, priority, resolution_description, resolved_by, resolved_at FROM complaints'
+        : 'SELECT id, user_id, title, description, status, date, unit, priority, resolution_description, resolved_by, resolved_at FROM complaints WHERE user_id = ?';
     const params = user.role === 'admin' ? [] : [userId];
     const [complaints] = await db.query(query, params);
     res.json(complaints);
@@ -162,17 +171,44 @@ exports.resolveComplaint = async (req, res) => {
       return res.status(400).json({ error: 'Complaint is already resolved' });
     }
 
-    // Update complaint to resolved
-    await db.query(
-      'UPDATE complaints SET status = ?, resolution_description = ?, resolved_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      ['resolved', resolution_description, userId, id]
-    );
+    // Get current date with time in IST (UTC+5:30)
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
+    const istTime = new Date(now.getTime() + istOffset);
+    
+    // Format for MySQL DATETIME (YYYY-MM-DD HH:MM:SS)
+    const resolvedAt = istTime.toISOString().slice(0, 19).replace('T', ' ');
+
+    try {
+      // Try to update with resolved_at column
+      await db.query(
+        'UPDATE complaints SET status = ?, resolution_description = ?, resolved_by = ?, resolved_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        ['resolved', resolution_description, userId, resolvedAt, id]
+      );
+    } catch (err) {
+      // If resolved_at column doesn't exist, update without it
+      if (err.code === 'ER_BAD_FIELD_ERROR' && err.sqlMessage.includes('resolved_at')) {
+        await db.query(
+          'UPDATE complaints SET status = ?, resolution_description = ?, resolved_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          ['resolved', resolution_description, userId, id]
+        );
+      } else {
+        throw err; // Re-throw other errors
+      }
+    }
 
     // Fetch updated complaint
     const [updatedComplaints] = await db.query('SELECT id, user_id, title, description, status, date, unit, priority, resolution_description, resolved_by FROM complaints WHERE id = ?', [id]);
-    res.json(updatedComplaints[0]);
+    
+    // Add resolved_at to the response if it exists in the database
+    const response = updatedComplaints[0];
+    if (response && !response.resolved_at) {
+      response.resolved_at = resolvedAt;
+    }
+    
+    res.json(response);
   } catch (err) {
-    console.error(err);
+    console.error('Error resolving complaint:', err);
     res.status(500).json({ error: 'Error resolving complaint' });
   }
 };
