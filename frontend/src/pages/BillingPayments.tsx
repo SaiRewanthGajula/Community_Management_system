@@ -5,7 +5,7 @@ import Button from '../components/common/Button';
 import Input from '../components/common/Input';
 import Card from '../components/common/Card';
 import axios from 'axios';
-import Select from 'react-select';
+import Select, { MultiValue } from 'react-select';
 import { useForm, Controller, SubmitHandler } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -31,7 +31,7 @@ interface User {
 }
 
 interface FormInputs {
-  user_ids: { value: number; label: string }[];
+  user_ids: { value: number | string; label: string }[];
   description: string;
   amount: string;
   due_date: string;
@@ -40,7 +40,7 @@ interface FormInputs {
 
 const schema = z.object({
   user_ids: z
-    .array(z.object({ value: z.number(), label: z.string() }))
+    .array(z.object({ value: z.union([z.number(), z.string()]), label: z.string() }))
     .min(1, 'At least one resident must be selected'),
   description: z.string().min(5, 'Description must be at least 5 characters').max(255),
   amount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Amount must be a valid number with up to 2 decimal places'),
@@ -153,18 +153,28 @@ const BillingPayments: React.FC = () => {
     setError(null);
     try {
       const payload = {
-        user_ids: data.user_ids.map((user) => {
-          if (!Number.isInteger(user.value)) {
-            throw new Error(`Invalid user_id: ${user.value}`);
-          }
-          return user.value;
-        }),
+        user_ids: data.user_ids
+          .filter((user) => user.value !== 'all')
+          .map((user) => {
+            const id = Number(user.value);
+            if (!Number.isInteger(id)) {
+              throw new Error(`Invalid user_id: ${user.value}`);
+            }
+            return id;
+          }),
         description: data.description,
         amount: parseFloat(data.amount),
         due_date: data.due_date,
         status: data.status,
       };
       console.log('Submitting payload:', payload);
+      console.log('Payload types:', {
+        user_ids: payload.user_ids.map(id => typeof id),
+        description: typeof payload.description,
+        amount: typeof payload.amount,
+        due_date: typeof payload.due_date,
+        status: typeof payload.status,
+      });
       await axios.post(`${apiBase}/bills`, payload, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -236,10 +246,47 @@ const BillingPayments: React.FC = () => {
 
   const { totalDue, totalPaid } = calculateSummary();
 
-  const userOptions = users.map((user) => ({
-    value: user.id,
-    label: `${user.name} (${user.unit})`,
-  }));
+  const userOptions = [
+    { value: 'all', label: 'Select All' },
+    ...users.map((user) => ({
+      value: user.id,
+      label: `${user.name} (${user.unit})`,
+    })),
+  ];
+
+  const handleSelectChange = (
+    selected: MultiValue<{ value: number | string; label: string }>,
+    field: { onChange: (value: { value: number | string; label: string }[]) => void }
+  ) => {
+    if (!selected) {
+      field.onChange([]);
+      return;
+    }
+    if (selected.some((option) => option.value === 'all')) {
+      field.onChange([...userOptions.filter((option) => option.value !== 'all')]);
+    } else {
+      field.onChange([...selected]);
+    }
+  };
+
+  const customStyles = {
+    control: (provided: any) => ({
+      ...provided,
+      border: '1px solid #e5e7eb',
+      padding: '0.5rem',
+      borderRadius: '0.375rem',
+      boxShadow: 'none',
+      '&:hover': { borderColor: '#2563eb' },
+    }),
+    menu: (provided: any) => ({
+      ...provided,
+      zIndex: 9999,
+    }),
+    option: (provided: any, state: any) => ({
+      ...provided,
+      backgroundColor: state.data.value === 'all' && state.isSelected ? '#dbeafe' : provided.backgroundColor,
+    }),
+  };
 
   return (
     <ErrorBoundary>
@@ -248,7 +295,7 @@ const BillingPayments: React.FC = () => {
         {role === 'admin' && (
           <Button
             onClick={() => setShowAddForm(true)}
-            className="mb-4 bg-blue-600 text-white hover:bg-blue-700"
+            className="mb-4 bg-primary hover:bg-primary/90 text-white focus:ring-primary"
           >
             Add New Bill
           </Button>
@@ -401,8 +448,9 @@ const BillingPayments: React.FC = () => {
                         isDisabled={users.length === 0}
                         className="basic-multi-select"
                         classNamePrefix="select"
-                        onChange={(selected) => field.onChange(selected)}
+                        onChange={(selected) => handleSelectChange(selected, field)}
                         value={field.value}
+                        styles={customStyles}
                       />
                     )}
                   />
@@ -462,7 +510,7 @@ const BillingPayments: React.FC = () => {
                   <Button
                     type="submit"
                     disabled={loading || users.length === 0}
-                    className="bg-blue-600 text-white hover:bg-blue-700"
+                    className="bg-primary hover:bg-primary/90 text-white focus:ring-primary"
                   >
                     {loading ? 'Creating...' : 'Create'}
                   </Button>
