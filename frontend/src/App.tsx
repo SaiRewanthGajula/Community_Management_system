@@ -4,6 +4,7 @@ import { AuthProvider } from './context/AuthContext';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
 import VisitorManagement from './pages/VisitorManagement';
+import AmenityBooking from './pages/AmenityBooking';
 import ComplaintManagement from './pages/ComplaintManagement';
 import Announcements from './pages/Announcements';
 import NewAnnouncement from './pages/NewAnnouncement';
@@ -28,6 +29,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/visitors" element={<VisitorManagement />} />
+            <Route path="/amenity-booking" element={<AmenityBooking />} />
             <Route path="/complaints" element={<ComplaintManagement />} />
             <Route path="/announcements" element={<Announcements />} />
             <Route path="/announcements/new" element={<NewAnnouncement />} />
