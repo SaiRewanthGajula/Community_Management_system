@@ -1,4 +1,3 @@
-// src/components/layout/Header.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { Bell, User, Menu } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -7,7 +6,7 @@ import axios from 'axios';
 
 interface NotificationItem {
   id: string;
-  type: 'announcement' | 'complaint';
+  type: 'announcement' | 'complaint' | 'booking';
   title: string;
   description: string;
   date: string;
@@ -39,9 +38,8 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
         // Fetch announcements
         const announcementsRes = await axios.get(`${apiUrl}/announcements?limit=10`, { headers });
-        console.log('Announcements response:', announcementsRes.data); // Debug
         const announcements = announcementsRes.data.map((item: any) => ({
-          id: item.id.toString(),
+          id: `announcement-${item.id}`,
           title: item.title,
           description: item.content,
           date: item.date || new Date().toISOString().split('T')[0],
@@ -51,9 +49,8 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
         // Fetch complaints
         const complaintsRes = await axios.get(`${apiUrl}/complaints?limit=10`, { headers });
-        console.log('Complaints response:', complaintsRes.data); // Debug
         const complaints = complaintsRes.data.map((item: any) => ({
-          id: item.id.toString(),
+          id: `complaint-${item.id}`,
           title: item.title,
           description: item.description,
           date: item.date || new Date().toISOString().split('T')[0],
@@ -62,8 +59,19 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
           number: item.id,
         }));
 
+        // Fetch booking notifications
+        const bookingsRes = await axios.get(`${apiUrl}/notifications?limit=10`, { headers });
+        const bookings = bookingsRes.data.map((item: any) => ({
+          id: `booking-${item.id}`,
+          title: item.type === 'booking_request' ? `New Booking Request` : `Booking ${item.status || 'Updated'}`,
+          description: item.message,
+          date: item.created_at || new Date().toISOString().split('T')[0],
+          type: 'booking' as const,
+          link: '/amenity-booking',
+        }));
+
         // Merge and sort by date descending
-        const allNotifications = [...announcements, ...complaints].sort(
+        const allNotifications = [...announcements, ...complaints, ...bookings].sort(
           (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
         );
         setNotifications(allNotifications);
@@ -79,7 +87,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
             localStorage.removeItem('societyToken');
             navigate('/login');
           } else if (error.response?.status === 404) {
-            setNotifications([]); // Handle 404 gracefully
+            setNotifications([]);
           } else {
             console.error('Unexpected error:', error.response?.data?.error || error.message);
           }
@@ -181,7 +189,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
                           <p className="font-medium text-gray-900">{notification.title}</p>
                         </div>
                         <span className="text-xs text-gray-500">
-                          {new Date(notification.date).toLocaleDateString()}
+                          {new Date(notification.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
                         </span>
                       </div>
                       <p className="text-sm text-gray-600 truncate">{notification.description}</p>

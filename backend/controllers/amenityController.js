@@ -1,5 +1,5 @@
-// controllers/amenityController.js
-const db = require('../config/db'); // Assuming MySQL connection pool
+// D:\cms\backend\controllers\amenityController.js
+const db = require('../config/db');
 
 const getAvailability = async (req, res) => {
   const { amenity_id, date } = req.query;
@@ -34,7 +34,7 @@ const getBookingHistory = async (req, res) => {
   }
   try {
     const [bookings] = await db.execute(
-      'SELECT ab.id, ab.amenity_id, ab.user_id, ab.status, ' +
+      'SELECT ab.id, ab.amenity_id, ab.user_id, ab.status, ab.rejection_reason, ' +
       'CONVERT_TZ(ab.start_time, "+00:00", "+05:30") AS start_time, ' +
       'CONVERT_TZ(ab.end_time, "+00:00", "+05:30") AS end_time, ' +
       'a.name AS amenity_name, u.name AS resident_name ' +
@@ -52,13 +52,37 @@ const getBookingHistory = async (req, res) => {
   }
 };
 
+const getAllBookingHistory = async (req, res) => {
+  if (req.user.role !== 'security' && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Only security or admin can view all booking history' });
+  }
+  try {
+    const [bookings] = await db.execute(
+      'SELECT ab.id, ab.amenity_id, ab.user_id, ab.status, ab.rejection_reason, ' +
+      'CONVERT_TZ(ab.start_time, "+00:00", "+05:30") AS start_time, ' +
+      'CONVERT_TZ(ab.end_time, "+00:00", "+05:30") AS end_time, ' +
+      'a.name AS amenity_name, u.name AS resident_name, u.unit AS resident_unit ' +
+      'FROM amenity_bookings ab ' +
+      'JOIN amenities a ON ab.amenity_id = a.id ' +
+      'JOIN users u ON ab.user_id = u.id ' +
+      'ORDER BY ab.start_time DESC'
+    );
+    console.log('All booking history (IST):', bookings);
+    res.json(bookings);
+  } catch (err) {
+    console.error('Error fetching all booking history:', err);
+    res.status(500).json({ error: 'Failed to fetch all booking history' });
+  }
+};
+
 const getPendingBookings = async (req, res) => {
   if (req.user.role !== 'security' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Only security or admin can view pending bookings' });
   }
   try {
     const [bookings] = await db.execute(
-      'SELECT ab.*, a.name AS amenity_name, u.name AS resident_name FROM amenity_bookings ab ' +
+      'SELECT ab.*, a.name AS amenity_name, u.name AS resident_name, u.unit AS resident_unit ' +
+      'FROM amenity_bookings ab ' +
       'JOIN amenities a ON ab.amenity_id = a.id ' +
       'JOIN users u ON ab.user_id = u.id ' +
       'WHERE ab.status = "pending" ORDER BY ab.start_time ASC'
@@ -88,38 +112,71 @@ const createBooking = async (req, res) => {
     if (amenity.length === 0) {
       return res.status(404).json({ error: 'Amenity not found' });
     }
-    const [result] = await db.execute(
-      'INSERT INTO amenity_bookings (amenity_id, user_id, start_time, end_time, status) VALUES (?, ?, ?, ?, "pending")',
-      [amenity_id, userId, start_time, end_time]
-    );
-    res.json({
-      id: result.insertId,
-      amenity_id,
-      amenity_name: amenity[0].name,
-      user_id: userId,
-      start_time,
-      end_time,
-      status: 'pending'
-    });
+    await db.execute('START TRANSACTION');
+    try {
+      const [result] = await db.execute(
+        'INSERT INTO amenity_bookings (amenity_id, user_id, start_time, end_time, status, created_at, updated_at) ' +
+        'VALUES (?, ?, ?, ?, "pending", NOW(), NOW())',
+        [amenity_id, userId, start_time, end_time]
+      );
+      const bookingId = result.insertId;
+      const [newBooking] = await db.execute(
+        'SELECT ab.*, a.name AS amenity_name, u.name AS resident_name ' +
+        'FROM amenity_bookings ab ' +
+        'JOIN amenities a ON ab.amenity_id = a.id ' +
+        'JOIN users u ON ab.user_id = u.id ' +
+        'WHERE ab.id = ?',
+        [bookingId]
+      );
+      const [securityUsers] = await db.execute('SELECT id FROM users WHERE role = "security"');
+      for (const securityUser of securityUsers) {
+        await db.execute(
+          'INSERT INTO notifications (user_id, message, booking_id, type, created_at) ' +
+          'VALUES (?, ?, ?, "booking_request", NOW())',
+          [securityUser.id, `New booking request for ${amenity[0].name} by ${newBooking[0].resident_name}.`, bookingId]
+        );
+      }
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('newBooking', {
+          booking_id: bookingId,
+          amenity_name: amenity[0].name,
+          resident_name: newBooking[0].resident_name,
+          start_time,
+          end_time,
+        });
+      } else {
+        console.warn('Socket.IO instance not found, skipping emit');
+      }
+      await db.execute('COMMIT');
+      res.json(newBooking[0]);
+    } catch (err) {
+      await db.execute('ROLLBACK');
+      console.error('Transaction error in createBooking:', err);
+      throw err;
+    }
   } catch (err) {
     console.error('Error creating booking:', err);
-    res.status(500).json({ error: 'Failed to create booking' });
+    res.status(500).json({ error: 'Failed to create booking', details: err.message });
   }
 };
 
 const updateBookingStatus = async (req, res) => {
-  const { booking_id, status } = req.body;
-  console.log('updateBookingStatus called:', { booking_id, status, user: req.user });
+  const { booking_id, status, rejection_reason } = req.body;
+  console.log('updateBookingStatus called:', { booking_id, status, rejection_reason, user: req.user });
   if (req.user.role !== 'security' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Only security or admin can update booking status' });
   }
   if (!['approved', 'rejected'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
+  if (status === 'rejected' && !rejection_reason?.trim()) {
+    return res.status(400).json({ error: 'Rejection reason is required' });
+  }
   try {
-    console.log('Fetching booking with ID:', booking_id);
     const [booking] = await db.execute(
-      'SELECT ab.*, a.name AS amenity_name, u.name AS resident_name FROM amenity_bookings ab ' +
+      'SELECT ab.*, a.name AS amenity_name, u.name AS resident_name, u.unit AS resident_unit ' +
+      'FROM amenity_bookings ab ' +
       'JOIN amenities a ON ab.amenity_id = a.id ' +
       'JOIN users u ON ab.user_id = u.id ' +
       'WHERE ab.id = ?',
@@ -129,32 +186,49 @@ const updateBookingStatus = async (req, res) => {
       console.log('Booking not found for ID:', booking_id);
       return res.status(404).json({ error: 'Booking not found' });
     }
-    console.log('Updating booking status for ID:', booking_id, 'to:', status);
-    await db.execute(
-      'UPDATE amenity_bookings SET status = ?, updated_at = NOW() WHERE id = ?',
-      [status, booking_id]
-    );
-    console.log('Inserting notification for user:', booking[0].user_id);
-    await db.execute(
-      'INSERT INTO notifications (user_id, message, booking_id) VALUES (?, ?, ?)',
-      [booking[0].user_id, `Your booking for ${booking[0].amenity_name} has been ${status}.`, booking_id]
-    );
-    const io = req.app.get('io');
-    if (!io) {
-      console.warn('Socket.IO instance not found, skipping emit');
-    } else {
-      console.log('Emitting bookingUpdated event:', { booking_id, status, amenity_name: booking[0].amenity_name });
-      io.emit('bookingUpdated', { booking_id, status, amenity_name: booking[0].amenity_name });
+    await db.execute('START TRANSACTION');
+    try {
+      await db.execute(
+        'UPDATE amenity_bookings SET status = ?, rejection_reason = ?, updated_at = NOW() WHERE id = ?',
+        [status, status === 'rejected' ? rejection_reason : null, booking_id]
+      );
+      const message = status === 'rejected'
+        ? `Your booking for ${booking[0].amenity_name} has been rejected. Reason: ${rejection_reason}`
+        : `Your booking for ${booking[0].amenity_name} has been ${status}.`;
+      await db.execute(
+        'INSERT INTO notifications (user_id, message, booking_id, type, rejection_reason, created_at) ' +
+        'VALUES (?, ?, ?, ?, ?, NOW())',
+        [booking[0].user_id, message, booking_id, 'booking_status', status === 'rejected' ? rejection_reason : null]
+      );
+      const io = req.app.get('io');
+      if (io) {
+        console.log('Emitting bookingUpdated event:', { booking_id, status, amenity_name: booking[0].amenity_name, rejection_reason });
+        io.emit('bookingUpdated', {
+          booking_id,
+          status,
+          user_id: booking[0].user_id,
+          amenity_name: booking[0].amenity_name,
+          resident_name: booking[0].resident_name,
+          rejection_reason: status === 'rejected' ? rejection_reason : null,
+        });
+      } else {
+        console.warn('Socket.IO instance not found, skipping emit');
+      }
+      await db.execute('COMMIT');
+      res.json({ id: booking_id, status, rejection_reason: status === 'rejected' ? rejection_reason : null });
+    } catch (err) {
+      await db.execute('ROLLBACK');
+      console.error('Transaction error in updateBookingStatus:', err);
+      throw err;
     }
-    res.json({ id: booking_id, status });
   } catch (err) {
     console.error('Error updating booking status:', {
       message: err.message,
       stack: err.stack,
       booking_id,
       status,
-      sqlMessage: err.sqlMessage, // MySQL-specific error message
-      sqlState: err.sqlState, // MySQL-specific error code
+      sqlMessage: err.sqlMessage,
+      sqlState: err.sqlState,
     });
     res.status(500).json({ error: 'Failed to update booking status', details: err.message, sqlMessage: err.sqlMessage });
   }
@@ -164,7 +238,8 @@ module.exports = {
   getAmenities,
   getAvailability,
   getBookingHistory,
+  getAllBookingHistory,
   getPendingBookings,
   createBooking,
-  updateBookingStatus
+  updateBookingStatus,
 };
