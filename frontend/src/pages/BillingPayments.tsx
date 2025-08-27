@@ -9,6 +9,8 @@ import Select, { MultiValue } from 'react-select';
 import { useForm, Controller, SubmitHandler } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
+import io from 'socket.io-client';
+import { useAuth } from '../context/AuthContext';
 
 interface Bill {
   id: number;
@@ -64,6 +66,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 }
 
 const BillingPayments: React.FC = () => {
+  const { user, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState('current');
   const [bills, setBills] = useState<Bill[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -91,9 +94,6 @@ const BillingPayments: React.FC = () => {
 
   const apiBase = import.meta.env.VITE_BACKEND_API_URL.replace(/\/+$/, '');
   const token = localStorage.getItem('societyToken');
-  const societyUser = localStorage.getItem('societyUser');
-  const role = societyUser ? JSON.parse(societyUser).role : null;
-  console.log('Role:', role);
 
   const fetchBills = async () => {
     setLoading(true);
@@ -112,7 +112,7 @@ const BillingPayments: React.FC = () => {
   };
 
   const fetchUsers = async () => {
-    if (role !== 'admin') return;
+    if (!isAdmin) return;
     setLoading(true);
     setError(null);
     try {
@@ -155,26 +155,13 @@ const BillingPayments: React.FC = () => {
       const payload = {
         user_ids: data.user_ids
           .filter((user) => user.value !== 'all')
-          .map((user) => {
-            const id = Number(user.value);
-            if (!Number.isInteger(id)) {
-              throw new Error(`Invalid user_id: ${user.value}`);
-            }
-            return id;
-          }),
+          .map((user) => Number(user.value)),
         description: data.description,
         amount: parseFloat(data.amount),
         due_date: data.due_date,
         status: data.status,
       };
       console.log('Submitting payload:', payload);
-      console.log('Payload types:', {
-        user_ids: payload.user_ids.map(id => typeof id),
-        description: typeof payload.description,
-        amount: typeof payload.amount,
-        due_date: typeof payload.due_date,
-        status: typeof payload.status,
-      });
       await axios.post(`${apiBase}/bills`, payload, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -234,15 +221,29 @@ const BillingPayments: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!token || !societyUser) {
+    if (!token || !user) {
       navigate('/login');
       return;
     }
+    const socket = io(apiBase.replace('/api', ''), {
+      auth: { token, user_id: user.id },
+    });
+
+    socket.on('newNotification', (notification) => {
+      if (notification.type === 'bill_reminder' || notification.type === 'bill_overdue') {
+        fetchBills();
+      }
+    });
+
     fetchBills();
-    if (role === 'admin') {
+    if (isAdmin) {
       fetchUsers();
     }
-  }, []);
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [token, user, isAdmin, navigate]);
 
   const { totalDue, totalPaid } = calculateSummary();
 
@@ -290,9 +291,9 @@ const BillingPayments: React.FC = () => {
 
   return (
     <ErrorBoundary>
-      <div className="p-6">
+      <div className="p-6 max-w-4xl mx-auto">
         <h1 className="text-2xl font-bold mb-6">Billing & Payments</h1>
-        {role === 'admin' && (
+        {isAdmin && (
           <Button
             onClick={() => setShowAddForm(true)}
             className="mb-4 bg-primary hover:bg-primary/90 text-white focus:ring-primary"
@@ -330,14 +331,14 @@ const BillingPayments: React.FC = () => {
               {bills.filter((bill) => bill.status === 'pending' || bill.status === 'upcoming').length > 0 && (
                 <div className="overflow-x-auto shadow-md rounded-lg">
                   <table className="w-full text-sm text-left text-gray-700 bg-white border border-gray-200">
-                    <thead className="bg-primary hover:bg-primary/90 text-white focus:ring-primary">
+                    <thead className="bg-primary text-white">
                       <tr>
                         <th className="px-6 py-3 border-b-2 border-blue-300">Description</th>
-                        {role === 'admin' && <th className="px-6 py-3 border-b-2 border-blue-300">User</th>}
+                        {isAdmin && <th className="px-6 py-3 border-b-2 border-blue-300">User</th>}
                         <th className="px-6 py-3 border-b-2 border-blue-300">Amount</th>
                         <th className="px-6 py-3 border-b-2 border-blue-300">Due Date</th>
                         <th className="px-6 py-3 border-b-2 border-blue-300">Status</th>
-                        {role !== 'admin' && <th className="px-6 py-3 border-b-2 border-blue-300">Action</th>}
+                        {!isAdmin && <th className="px-6 py-3 border-b-2 border-blue-300">Action</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -349,7 +350,7 @@ const BillingPayments: React.FC = () => {
                             className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white hover:bg-gray-100 transition-colors'}
                           >
                             <td className="px-6 py-4 border-b border-gray-200">{bill.description}</td>
-                            {role === 'admin' && (
+                            {isAdmin && (
                               <td className="px-6 py-4 border-b border-gray-200">
                                 {bill.user_name ? `${bill.user_name} (${bill.user_unit || 'N/A'})` : bill.user_id}
                               </td>
@@ -357,7 +358,7 @@ const BillingPayments: React.FC = () => {
                             <td className="px-6 py-4 border-b border-gray-200">₹{Number(bill.amount).toFixed(2)}</td>
                             <td className="px-6 py-4 border-b border-gray-200">{formatDateTimeToIST(bill.due_date)}</td>
                             <td className="px-6 py-4 border-b border-gray-200 capitalize">{bill.status}</td>
-                            {role !== 'admin' && (
+                            {!isAdmin && (
                               <td className="px-6 py-4 border-b border-gray-200">
                                 <Button
                                   onClick={() => handlePayNow(bill.id)}
@@ -388,10 +389,10 @@ const BillingPayments: React.FC = () => {
               {bills.filter((bill) => bill.status === 'paid').length > 0 && (
                 <div className="overflow-x-auto shadow-md rounded-lg">
                   <table className="w-full text-sm text-left text-gray-700 bg-white border border-gray-200">
-                    <thead className="bg-primary hover:bg-primary/90 text-white focus:ring-primary">
+                    <thead className="bg-primary text-white">
                       <tr>
                         <th className="px-6 py-3 border-b-2 border-blue-300">Description</th>
-                        {role === 'admin' && <th className="px-6 py-3 border-b-2 border-blue-300">User</th>}
+                        {isAdmin && <th className="px-6 py-3 border-b-2 border-blue-300">User</th>}
                         <th className="px-6 py-3 border-b-2 border-blue-300">Amount</th>
                         <th className="px-6 py-3 border-b-2 border-blue-300">Due Date</th>
                         <th className="px-6 py-3 border-b-2 border-blue-300">Status</th>
@@ -407,7 +408,7 @@ const BillingPayments: React.FC = () => {
                             className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white hover:bg-gray-100 transition-colors'}
                           >
                             <td className="px-6 py-4 border-b border-gray-200">{bill.description}</td>
-                            {role === 'admin' && (
+                            {isAdmin && (
                               <td className="px-6 py-4 border-b border-gray-200">
                                 {bill.user_name ? `${bill.user_name} (${bill.user_unit || 'N/A'})` : bill.user_id}
                               </td>
@@ -428,7 +429,7 @@ const BillingPayments: React.FC = () => {
           </TabsContent>
         </Tabs>
 
-        {role === 'admin' && showAddForm && (
+        {isAdmin && showAddForm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
             <Card className="p-6 w-full max-w-md">
               <h2 className="text-xl font-semibold mb-4">Add New Bill</h2>

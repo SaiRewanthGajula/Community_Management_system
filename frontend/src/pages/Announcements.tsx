@@ -1,15 +1,28 @@
-// src/pages/Announcements.tsx
 import React, { useState, useEffect, ChangeEvent } from 'react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Input from '../components/common/Input';
 import { useNavigate } from 'react-router-dom';
-import { Megaphone, Edit, Trash2 } from 'lucide-react';
+import { Megaphone, Edit, Trash2, BarChart } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
+import io from 'socket.io-client';
 
 const apiBase = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api';
-console.log('Using API base:', apiBase);
+
+interface PollOption {
+  id: number;
+  text: string;
+  vote_count: number;
+  percentage: string;
+}
+
+interface Poll {
+  id: number;
+  question: string;
+  options: PollOption[];
+  user_vote: number | null;
+}
 
 interface Announcement {
   id: number;
@@ -17,10 +30,11 @@ interface Announcement {
   content: string;
   date: string | null;
   priority: 'low' | 'medium' | 'high';
+  poll: Poll | null;
 }
 
 const Announcements: React.FC = () => {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isResident, user } = useAuth();
   const nav = useNavigate();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,6 +48,40 @@ const Announcements: React.FC = () => {
   const [filterDate, setFilterDate] = useState('');
 
   useEffect(() => {
+    const socket = io(apiBase.replace('/api', ''), {
+      auth: { token: localStorage.getItem('societyToken'), user_id: user?.id },
+    });
+
+    socket.on('announcementAdded', (newAnnouncement) => {
+      setAnnouncements((prev) => [newAnnouncement, ...prev].slice(0, 10));
+    });
+
+    socket.on('announcementUpdated', (updatedAnnouncement) => {
+      setAnnouncements((prev) =>
+        prev.map((a) => (a.id === updatedAnnouncement.id ? { ...a, ...updatedAnnouncement } : a))
+      );
+    });
+
+    socket.on('announcementDeleted', ({ id }) => {
+      setAnnouncements((prev) => prev.filter((a) => a.id !== id));
+    });
+
+    socket.on('pollUpdated', ({ poll_id, announcement_id, results }) => {
+      setAnnouncements((prev) =>
+        prev.map((a) =>
+          a.id === announcement_id && a.poll
+            ? { ...a, poll: { ...a.poll, options: results, user_vote: a.poll.user_vote } }
+            : a
+        )
+      );
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
     const fetchAnnouncements = async () => {
       try {
         const token = localStorage.getItem('societyToken');
@@ -41,7 +89,7 @@ const Announcements: React.FC = () => {
         const res = await axios.get<Announcement[]>(`${apiBase}/announcements?limit=10`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        console.log('Announcements response:', res.data); // Debug
+        console.log('Announcements response:', res.data);
         setAnnouncements(Array.isArray(res.data) ? res.data : []);
       } catch (err: any) {
         console.error('Failed to load announcements:', err);
@@ -68,6 +116,22 @@ const Announcements: React.FC = () => {
     };
     fetchAnnouncements();
   }, [nav]);
+
+  const handleVote = async (pollId: number, optionId: number) => {
+    try {
+      const token = localStorage.getItem('societyToken');
+      if (!token) throw new Error('No token found');
+      await axios.post(
+        `${apiBase}/announcements/vote`,
+        { poll_id: pollId, option_id: optionId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      // Update handled via Socket.IO
+    } catch (err: any) {
+      console.error('Error submitting vote:', err);
+      setError(err.response?.data?.error || 'Failed to submit vote');
+    }
+  };
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -101,7 +165,16 @@ const Announcements: React.FC = () => {
     const formatted = announcement.date
       ? new Date(announcement.date).toISOString().split('T')[0]
       : '';
-    setEditData({ ...announcement, date: formatted });
+    setEditData({
+      ...announcement,
+      date: formatted,
+      poll: announcement.poll
+        ? {
+            ...announcement.poll,
+            options: announcement.poll.options.map((opt) => ({ ...opt, text: opt.text })),
+          }
+        : null,
+    });
     setEditError(null);
     setIsEditing(true);
   };
@@ -122,7 +195,13 @@ const Announcements: React.FC = () => {
       const token = localStorage.getItem('societyToken');
       const res = await axios.put<Announcement>(
         `${apiBase}/announcements/${id}`,
-        { title, content, priority },
+        {
+          title,
+          content,
+          priority,
+          poll_question: editData.poll?.question,
+          poll_options: editData.poll?.options.map((opt) => opt.text),
+        },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setAnnouncements((prev) =>
@@ -152,7 +231,7 @@ const Announcements: React.FC = () => {
   if (error) return <p className="p-6 text-red-600">{error}</p>;
 
   return (
-    <div className="p-6">
+    <div className="p-6 max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Announcements</h1>
         {isAdmin && (
@@ -193,9 +272,9 @@ const Announcements: React.FC = () => {
         {filteredAnnouncements.length ? (
           filteredAnnouncements.map((a) => (
             <Card key={a.id} className="hover:shadow-md">
-              <div className="p-4 flex justify-between">
-                <div>
-                  <div className="flex items-center mb-2">
+              <div className="p-4">
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex items-center">
                     <h3 className="font-semibold mr-2">{a.title}</h3>
                     <span
                       className={`text-xs px-2 py-1 rounded ${getPriorityColor(
@@ -205,27 +284,60 @@ const Announcements: React.FC = () => {
                       {a.priority}
                     </span>
                   </div>
-                  <p className="text-gray-600 mb-1">{a.content}</p>
-                  <p className="text-sm text-gray-500">
-                    Posted on: {a.date ? new Date(a.date).toLocaleDateString() : 'N/A'}
-                  </p>
+                  {isAdmin && (
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => openEditModal(a)}
+                        className="p-1 hover:bg-gray-100 rounded"
+                        title="Edit Announcement"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => deleteAnnouncement(a.id)}
+                        className="p-1 hover:bg-gray-100 rounded"
+                        title="Delete Announcement"
+                      >
+                        <Trash2 className="w-4 h-4 text-red-600" />
+                      </button>
+                    </div>
+                  )}
                 </div>
-                {isAdmin && (
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => openEditModal(a)}
-                      className="p-1 hover:bg-gray-100 rounded"
-                      title="Edit Announcement"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => deleteAnnouncement(a.id)}
-                      className="p-1 hover:bg-gray-100 rounded"
-                      title="Delete Announcement"
-                    >
-                      <Trash2 className="w-4 h-4 text-red-600" />
-                    </button>
+                <p className="text-gray-600 mb-2">{a.content}</p>
+                <p className="text-sm text-gray-500">
+                  Posted on: {a.date ? new Date(a.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}
+                </p>
+                {a.poll && (
+                  <div className="mt-4">
+                    <h4 className="font-medium text-gray-800">{a.poll.question}</h4>
+                    <div className="mt-2 space-y-2">
+                      {a.poll.options.map((option) => (
+                        <div key={option.id} className="flex items-center space-x-2">
+                          {isResident && a.poll.user_vote === null ? (
+                            <Button
+                              onClick={() => handleVote(a.poll!.id, option.id)}
+                              className="bg-blue-600 text-white hover:bg-blue-700 text-sm py-1 px-2"
+                            >
+                              Vote
+                            </Button>
+                          ) : (
+                            <div className="w-16">
+                              <span className="text-sm">{option.percentage}%</span>
+                              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                <div
+                                  className="bg-blue-600 h-2.5 rounded-full"
+                                  style={{ width: `${option.percentage}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          )}
+                          <span className="text-sm">{option.text} ({option.vote_count} votes)</span>
+                          {a.poll.user_vote === option.id && (
+                            <span className="text-xs text-green-600">Your vote</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -238,7 +350,7 @@ const Announcements: React.FC = () => {
 
       {isEditing && editData && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="bg-white rounded-lg w-96 p-6">
+          <div className="bg-white rounded-lg w-full max-w-md p-6">
             <h2 className="text-xl mb-4">Edit Announcement</h2>
             {editError && <p className="text-red-600 text-sm mb-4">{editError}</p>}
             <Input
