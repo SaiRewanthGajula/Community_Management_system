@@ -4,6 +4,7 @@ interface CardProps {
   title?: string;
   children: React.ReactNode;
   className?: string;
+  icon?: React.ReactNode;
   onClick?: () => void;
 }
 

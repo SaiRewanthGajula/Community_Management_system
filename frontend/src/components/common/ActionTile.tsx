@@ -1,13 +1,14 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { DivideIcon as LucideIcon } from 'lucide-react';
+import { LucideIcon } from 'lucide-react';
 
 interface ActionTileProps {
   icon: LucideIcon;
   title: string;
   description: string;
-  to: string;
+  to?: string; // Made optional
   color?: string;
+  onClick?: () => void;
 }
 
 const ActionTile: React.FC<ActionTileProps> = ({ 
@@ -15,23 +16,36 @@ const ActionTile: React.FC<ActionTileProps> = ({
   title, 
   description, 
   to,
-  color = 'bg-primary text-white'
+  color = 'bg-primary text-white',
+  onClick,
 }) => {
-  return (
+  const content = (
+    <div 
+      className="h-full bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden hover:shadow-md"
+      onClick={onClick}
+    >
+      <div className={`p-4 flex justify-center ${color}`}>
+        <Icon className="w-8 h-8" />
+      </div>
+      <div className="p-4">
+        <h3 className="font-medium text-gray-800">{title}</h3>
+        <p className="mt-1 text-sm text-gray-500">{description}</p>
+      </div>
+    </div>
+  );
+
+  return to ? (
     <Link 
       to={to}
       className="block transition-transform hover:-translate-y-1"
+      onClick={onClick}
     >
-      <div className="h-full bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden hover:shadow-md">
-        <div className={`p-4 flex justify-center ${color}`}>
-          <Icon className="w-8 h-8" />
-        </div>
-        <div className="p-4">
-          <h3 className="font-medium text-gray-800">{title}</h3>
-          <p className="mt-1 text-sm text-gray-500">{description}</p>
-        </div>
-      </div>
+      {content}
     </Link>
+  ) : (
+    <div className="block transition-transform hover:-translate-y-1">
+      {content}
+    </div>
   );
 };
 
